@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CityGrow — 自動で育つ街</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏙️</text></svg>" />
+    <link rel="stylesheet" href="./style.css" />
+    <script>
+      // main.js 自体を評価できない場合（CDN に届かない・読み込むファイルの構文エラー）も #fatal に理由を出す。
+      // 起動後のエラーは main.js が表示する
+      window.__bootFail = function (msg) {
+        var f = document.getElementById('fatal');
+        if (!f || !f.hidden || window.__city) return;
+        f.hidden = false;
+        f.textContent = '読み込みに失敗しました\n\n' + msg;
+      };
+      window.addEventListener('error', function (e) {
+        if (window.__city) return;
+        var where = e.filename ? '\n' + e.filename + (e.lineno ? ':' + e.lineno : '') : '';
+        window.__bootFail(((e.error && e.error.stack) || e.message || String(e)) + where);
+      });
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud"></div>
+    <pre id="fatal" hidden></pre>
+    <script
+      type="module"
+      src="./src/main.js"
+      onerror="__bootFail('モジュールを読み込めませんでした（ネットワーク / CDN）。\n接続を確認してから再読み込みしてください。')"
+    ></script>
+  </body>
+</html>
