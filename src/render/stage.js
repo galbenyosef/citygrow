@@ -164,8 +164,9 @@ export class Stage {
     this._shadowAge = 1e9;
     this._shadowBox = { l: 0, r: 0, t: 0, b: 0, n: 0, f: 0 };
 
-    // renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // renderer。画面へは OutputPass の全画面描画だけなので既定フレームバッファの MSAA は不要
+    // （AA は下の MSAA レンダーターゲットで行う）。Retina では数百 MB の GPU メモリ節約になる
+    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
@@ -177,6 +178,22 @@ export class Stage {
     renderer.domElement.style.touchAction = 'none';
     this.container.appendChild(renderer.domElement);
     this.renderer = renderer;
+
+    // WebGL コンテキストロスト（GPU メモリ不足など）。復帰は three.js が内部状態を作り直す
+    this.onContextLost = null;
+    this.onContextRestored = null;
+    this._contextLost = false;
+    this._released = false;
+    renderer.domElement.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault(); // 復帰を許可
+      this._contextLost = true;
+      if (!this._released && typeof this.onContextLost === 'function') this.onContextLost();
+    });
+    renderer.domElement.addEventListener('webglcontextrestored', () => {
+      this._contextLost = false;
+      this._shadowAge = 1e9; // 影マップも作り直す
+      if (!this._released && typeof this.onContextRestored === 'function') this.onContextRestored();
+    });
 
     // scene / camera
     const scene = new THREE.Scene();
@@ -279,6 +296,9 @@ export class Stage {
       bloomSetSize(Math.max(2, Math.round(w * s)), Math.max(2, Math.round(h * s)));
     };
     this.outputPass = new OutputPass();
+    // RenderPass / Bloom は readBuffer 上で完結するので、最後に入れ替える必要はない。
+    // 入れ替えると 2 枚目の MSAA ターゲット（Retina で約 190MB）まで確保される
+    this.outputPass.needsSwap = false;
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(this.outputPass);
@@ -625,7 +645,20 @@ export class Stage {
     sun.position.copy(_v2).addScaledVector(f, lightDist + near);
   }
 
+  // イベント通知より先に失われていることがあるので GL にも問い合わせる
+  get contextLost() {
+    return this._contextLost || this.renderer.getContext().isContextLost();
+  }
+
   render() {
+    if (this.contextLost) return;
     this.composer.render();
+  }
+
+  // ページ遷移の直前に GPU メモリを即時解放する（新しいページのコンテキストと同時に抱えないため）
+  release() {
+    this._released = true;
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 }
