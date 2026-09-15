@@ -9,6 +9,8 @@ import { CONFIG, clamp } from '../config.js';
 const HALF = (CONFIG.GRID * CONFIG.CELL) / 2;
 const TAU = Math.PI * 2;
 const SHADOW_SIZE = 4096;
+const LOSS_LIMIT = 4; // この回数以上…
+const LOSS_WINDOW_MS = 15000; // …この時間内にコンテキストが失われたら復帰を諦める
 const SHADOW_FADE = 0.78; // 影カメラの端 22% で影をフェードアウト（下のチャンクパッチと一致させる）
 const SHADOW_CASTER_H = 140; // 影を落とす物体の最大高さ（塔 + アンテナ）
 const LOG_STEP = Math.log(1.08);
@@ -182,8 +184,31 @@ export class Stage {
     // WebGL コンテキストロスト（GPU メモリ不足など）。復帰は three.js が内部状態を作り直す
     this.onContextLost = null;
     this.onContextRestored = null;
+    this.onContextGiveUp = null;
+    this.gpuUnstable = false;
     this._contextLost = false;
     this._released = false;
+    this._lossTimes = [];
+    // 復帰した直後にまた失われる状態（ブラウザの GPU プロセスが不安定）では、復帰を繰り返すほど
+    // GPU メモリを食い続ける（Safari で数秒に数千回）。短時間に何度も失われたら復帰を諦める。
+    // three.js のハンドラが preventDefault（＝自動復帰を許可）するので、キャプチャ段階で先回りして止める
+    this.container.addEventListener(
+      'webglcontextlost',
+      (e) => {
+        if (e.target !== renderer.domElement) return;
+        const now = performance.now();
+        const times = this._lossTimes;
+        times.push(now);
+        while (times.length && now - times[0] > LOSS_WINDOW_MS) times.shift();
+        if (!this.gpuUnstable && times.length < LOSS_LIMIT) return;
+        e.stopPropagation();
+        this._contextLost = true;
+        if (this.gpuUnstable) return;
+        this.gpuUnstable = true;
+        if (!this._released && typeof this.onContextGiveUp === 'function') this.onContextGiveUp();
+      },
+      true,
+    );
     renderer.domElement.addEventListener('webglcontextlost', (e) => {
       e.preventDefault(); // 復帰を許可
       this._contextLost = true;

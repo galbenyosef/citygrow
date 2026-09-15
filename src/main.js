@@ -113,9 +113,16 @@ function main() {
     ui.cinematic = false;
   };
 
+  // コンテキストロストの通知。失われる→戻るを繰り返してもログは 1 回ずつに抑える
   let lostTimer = 0;
+  let restoredTimer = 0;
+  let lostLogged = false;
   stage.onContextLost = () => {
-    hud.log('描画が一時停止しました（GPU のリソース不足）。復帰を待っています…', 'info');
+    clearTimeout(restoredTimer);
+    if (!lostLogged) {
+      lostLogged = true;
+      hud.log('描画が一時停止しました（GPU のリソース不足）。復帰を待っています…', 'info');
+    }
     clearTimeout(lostTimer);
     lostTimer = setTimeout(() => {
       if (stage.contextLost && !stopped) {
@@ -128,7 +135,26 @@ function main() {
   stage.onContextRestored = () => {
     clearTimeout(lostTimer);
     if (!stopped) setNotice(null);
-    hud.log('描画が復帰しました', 'info');
+    // 復帰直後にまた失われることがあるので、しばらく安定してから知らせる
+    clearTimeout(restoredTimer);
+    restoredTimer = setTimeout(() => {
+      if (stage.contextLost || !lostLogged) return;
+      lostLogged = false;
+      hud.log('描画が復帰しました', 'info');
+    }, 2000);
+  };
+  stage.onContextGiveUp = () => {
+    clearTimeout(lostTimer);
+    clearTimeout(restoredTimer);
+    const ua = navigator.userAgent;
+    const isSafari = /Safari\//.test(ua) && !/Chrome|Chromium|Edg\//.test(ua);
+    setNotice(
+      '描画を続けられませんでした\n\nブラウザの GPU 処理が不安定になっています（描画の中断と復帰が繰り返されました）。\n' +
+        (isSafari
+          ? 'Safari をいったん完全に終了（⌘Q）してから開き直してください。'
+          : 'ブラウザを再起動してから開き直してください。'),
+    );
+    stopped = true;
   };
   city.events.on('log', ({ text, kind }) => hud.log(text, kind));
   city.start();
